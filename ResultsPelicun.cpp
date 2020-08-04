@@ -377,9 +377,10 @@ static int mergesort(double *input, int size)
 
 int ResultsPelicun::processResults(QString filenameTab) {
 
-    // Copy files from the application dir to the workdir
-    QString resDir = filenameTab.remove("dakotaTab.out");
-    QDir rDir(resDir);
+
+    // Get the results directory path
+    QString resultsDir = filenameTab.remove("dakotaTab.out");
+    QDir rDir(resultsDir);
 
     // Get the input json data from the dakota.json file
     QFile inputFile(rDir.absoluteFilePath("dakota.json"));
@@ -390,7 +391,7 @@ int ResultsPelicun::processResults(QString filenameTab) {
     QJsonObject inputData = doc.object();
     inputFile.close();
 
-    // If the runType is HPC, then we need to do additional calculations
+    // If the runType is HPC, then we need to do additional operations
     QString runType = inputData["runType"].toString();
     if (runType == "HPC"){
         // create the workdir and copy the two result files there
@@ -416,22 +417,24 @@ int ResultsPelicun::processResults(QString filenameTab) {
         QDir scriptDir(inputData["localAppDir"].toString());
         scriptDir.cd("applications");
         scriptDir.cd("Workflow");
-        QString pySCRIPT = scriptDir.absoluteFilePath("PBE workflow.py");
+        QString pySCRIPT = scriptDir.absoluteFilePath("PBE_workflow.py");
         QString registryFile = scriptDir.absoluteFilePath("WorkflowApplications.json");
         QString inputFileName = tmpDir.absoluteFilePath("dakota.json");
 
 
-	QProcess *proc = new QProcess();
-	QString python = QString("python");
-	QSettings settings("SimCenter", "Common"); //These names will need to be constants to be shared
-	QVariant  pythonLocationVariant = settings.value("pythonExePath");
-	if (pythonLocationVariant.isValid()) {
-	  python = pythonLocationVariant.toString();
-	}
-	
-	
+        QProcess *proc = new QProcess();
+        QString python = QString("python");
+        QSettings settings("SimCenter", "Common"); //These names will need to be constants to be shared
+        QVariant  pythonLocationVariant = settings.value("pythonExePath");
+        if (pythonLocationVariant.isValid()) {
+          python = pythonLocationVariant.toString();
+        }
+
+
+         emit sendErrorMessage("Now Running Pelicun to deremine losses");
+
 #ifdef Q_OS_WIN
-	python = QString("\"") + python + QString("\"");
+        python = QString("\"") + python + QString("\"");
         QStringList args{pySCRIPT, "loss_only",inputFileName,registryFile};
         proc->execute(python, args);
 
@@ -439,8 +442,8 @@ int ResultsPelicun::processResults(QString filenameTab) {
         // note the above not working under linux because basrc not being called so no env variables!!
 
         QString command = QString("source $HOME/.bash_profile; \"") + python + QString("\" \"") +
-	  pySCRIPT + QString("\"  loss_only ") + inputFileName + QString(" ") +
-                registryFile;
+            pySCRIPT + QString("\"loss_only\"") + inputFileName + QString(" ") +
+            registryFile;
 
         qDebug() << "PYTHON COMMAND: " << command;
         proc->execute("bash", QStringList() << "-c" <<  command);
@@ -449,71 +452,13 @@ int ResultsPelicun::processResults(QString filenameTab) {
 
         proc->waitForStarted();
 
+        // move the resultsDir to the runDir
+        resultsDir = runDirName;
+
     }
 
-    // the DL calculation has been moved to the workflow script
-    /*
-    emit sendStatusMessage("Processing Simulation Results and Preparing Damage & Loss Inputs");
 
-    //
-    // invoke python script to perform DL calculations
-    //
-
-    //TODO: recognize if it is PBE or EE-UQ -> probably smarter to do it inside the python file
-    QString pySCRIPT;
-
-    QString appDir = QCoreApplication::applicationDirPath();
-
-
-
-    QDir scriptDir(appDir);
-    scriptDir.cd("applications");
-    scriptDir.cd("performDL");
-    pySCRIPT = scriptDir.absoluteFilePath("DL_calculation.py");
-
-    if (populationString == "") {
-        populationString = "None";
-    }
-
-    if (fragilitiesString == "") {
-        fragilitiesString = "None";
-    }
-
-    //scriptDir.cd("resources");
-    //QString populationString = scriptDir.absoluteFilePath("population.json");
-    //scriptDir.cd("fragilities");
-    //QString fragilitiesString = scriptDir.absolutePath() + QDir::separator();
-
-    QFileInfo check_script(pySCRIPT);
-    // check if file exists and if yes: Is it really a file and no directory?
-    if (!check_script.exists() || !check_script.isFile()) {
-        emit sendErrorMessage(QString("NO DL script: ") + pySCRIPT);
-        return false;
-    }
-
-    // check if the input and result files required for loss assessment exist
-    QFileInfo check_input_data(inputFile);
-    if (!check_input_data.exists() || !check_input_data.isFile()) {
-        emit sendErrorMessage(QString("Input file not found: ") + inputFile);
-        return false;
-    }
-
-    QFileInfo check_result_data(filenameTab);
-    if (!check_result_data.exists() || !check_result_data.isFile()) {
-        emit sendErrorMessage(QString("Result file not found: ") + filenameTab);
-        return false;
-    }
-
-    emit sendStatusMessage("Running the Damage & Loss Calculations");
-
-    QProcess *proc = new QProcess();
-
-    // run the DL calculation script
-    QStringList test_list{pySCRIPT, inputFile, filenameTab, fragilitiesString, populationString};
-    proc->execute("python", test_list);
-
-    qDebug() << "FILE CREATED";
-    */
+    emit sendErrorMessage("Loading Loss Results");
 
     this->clear();
     mLeft = true;
@@ -536,16 +481,55 @@ int ResultsPelicun::processResults(QString filenameTab) {
     dakotaText->setReadOnly(true); // make it so user cannot edit the contents
     dakotaText->setText("\n");
 
-    //DL_Summary_Stats
-    QString resultsDir = filenameTab.remove("dakotaTab.out");
-    QString resultsStatsFile = resultsDir + "DL_summary_stats.csv";
+    // check if the main DL result file is available
+    QString resultsStatsFile = resultsDir + "/DL_summary_stats.csv";
     std::ifstream fileResultsStats(resultsStatsFile.toStdString().c_str());
     if (!fileResultsStats.is_open()) {
+
+        // Now we know that something is wrong...
+
+        //
+        // check dakota actually ran the FE simulations so that blame may
+        // be properly assessed .. i.e. not always the fault of pelicun.
+        //
+
+        QFileInfo fileTabInfo(filenameTab);
+        QString filenameErrorString = fileTabInfo.absolutePath() + QDir::separator() + QString("dakota.err");
+
+        QFileInfo filenameErrorInfo(filenameErrorString);
+        if (!filenameErrorInfo.exists()) {
+            emit sendErrorMessage("No dakota.err file - dakota did not run - problem with dakota setup or the applicatins failed with inputs provided");
+            return 0;
+        }
+        QFile fileError(filenameErrorString);
+        QString line("");
+        if (fileError.open(QIODevice::ReadOnly)) {
+           QTextStream in(&fileError);
+           while (!in.atEnd()) {
+              line = in.readLine();
+           }
+           fileError.close();
+        }
+
+        if (line.length() != 0) {
+            qDebug() << line.length() << " " << line;
+            emit sendErrorMessage(QString(QString("Error Running Dakota: ") + line));
+            return 0;
+        }
+
+        QFileInfo filenameTabInfo(filenameTab);
+        if (!filenameTabInfo.exists()) {
+            emit sendErrorMessage("No dakotaTab.out file - dakota failed .. possibly no QoI");
+            return 0;
+        }
+
         emit sendErrorMessage(
             QString("Could not open file: ") + resultsStatsFile +
             QString(" . Damage and loss results are not available."));
         return -1;
     }
+
+    // If we get until this point, then the DL_summary_stats file is available.
 
     //
     // first 4 lines contain summary data
@@ -601,6 +585,25 @@ int ResultsPelicun::processResults(QString filenameTab) {
     sepLine->setFrameShadow(QFrame::Sunken);
     summaryLayout->addWidget(sepLine);
 
+    resultsToShow.clear();
+    resultsToShow.insert("inhabitants/","inhabitants");
+    resultsToShow.insert("collapses/collapsed","collapsed?");
+    resultsToShow.insert("red_tagged/","red tagged?");
+    resultsToShow.insert("reconstruction/irreparable","irreparable?");
+    resultsToShow.insert("reconstruction/cost_impractical","excessive repair cost?");
+    resultsToShow.insert("reconstruction/cost","repair cost");
+    resultsToShow.insert("reconstruction/time","repair time");
+    resultsToShow.insert("reconstruction/time_impractical","excessive repair time?");
+    resultsToShow.insert("reconstruction/time-sequential","repair time - sequential");
+    resultsToShow.insert("reconstruction/time-parallel","repair time - parallel");
+    resultsToShow.insert("injuries/sev1","injuries-1");
+    resultsToShow.insert("injuries/sev2","injuries-2");
+    resultsToShow.insert("injuries/sev3","injuries-3");
+    resultsToShow.insert("injuries/sev4","injuries-4");
+    resultsToShow.insert("highest_damage_state/S","top DS S");
+    resultsToShow.insert("highest_damage_state/NSA","top DS NSA");
+    resultsToShow.insert("highest_damage_state/NSD","top DS NSD");
+
     while(std::getline(ssName, tokenName, ',')) {
 
         std::getline(ssMean, tokenMean, ',');
@@ -610,8 +613,6 @@ int ResultsPelicun::processResults(QString filenameTab) {
         std::getline(ss50, token50, ',');
         std::getline(ss90, token90, ',');
         std::getline(ssMax, tokenMax, ',');
-
-	//        std::cerr << tokenName << " " << tokenMean << " " << tokenStd << '\n';
 
         QString DV_name(tokenName.c_str());
         std::string::size_type sz;
@@ -623,17 +624,22 @@ int ResultsPelicun::processResults(QString filenameTab) {
         double DV_90 = std::stod(token90.c_str(), &sz);
         double DV_max = std::stod(tokenMax.c_str(), &sz);
 
-        theHeadings <<DV_name;
+        theHeadings << DV_name;
 
-        QWidget *theWidget = this->createSummaryItem2(DV_name, DV_mean,
-            DV_stdDev, DV_min, DV_10, DV_50, DV_90, DV_max);
-        summaryLayout->addWidget(theWidget);
+        if (resultsToShow.contains(DV_name)) {
 
-        // add a separator line after the row
-        QFrame *sepLine = new QFrame;
-        sepLine->setFrameShape(QFrame::HLine);
-        sepLine->setFrameShadow(QFrame::Sunken);
-        summaryLayout->addWidget(sepLine);
+            QString DV_DisplayName = resultsToShow.value(DV_name);
+
+            QWidget *theWidget = this->createSummaryItem2(DV_DisplayName,
+                DV_mean, DV_stdDev, DV_min, DV_10, DV_50, DV_90, DV_max);
+            summaryLayout->addWidget(theWidget);
+
+            // add a separator line after the row
+            QFrame *sepLine = new QFrame;
+            sepLine->setFrameShape(QFrame::HLine);
+            sepLine->setFrameShadow(QFrame::Sunken);
+            summaryLayout->addWidget(sepLine);
+        }
 
         colCount++;
     }
@@ -662,15 +668,25 @@ int ResultsPelicun::processResults(QString filenameTab) {
    // std::getline(fileResults, inputLine);
    // std::istringstream iss(inputLine);
 
-    qDebug() << "SETTINGS: " << theHeadings << " " << theHeadings.count();
+    resultsToShow.insert("Realization","#");
+    resultsToShow.insert("event_time/month","month");
+    resultsToShow.insert("event_time/weekday?","weekday?");
+    resultsToShow.insert("event_time/hour","hour");
+    resultsToShow.insert("collapses/mode","collapse mode");
 
-    colCount = theHeadings.count();
+    QStringList modHeadings = QStringList();
+
+    for (const auto& colHeader: theHeadings){
+        modHeadings << resultsToShow.value(colHeader);
+    }
+
+    colCount = modHeadings.count();
     spreadsheet->setColumnCount(colCount);
-    spreadsheet->setHorizontalHeaderLabels(theHeadings);
+    spreadsheet->setHorizontalHeaderLabels(modHeadings);
 
     // now read the file with the detailed results
     //DL_Summary
-    QString resultsFile = resultsDir + "DL_summary.csv";
+    QString resultsFile = resultsDir + "/DL_summary.csv";
     std::ifstream fileResults(resultsFile.toStdString().c_str());
     if (!fileResults.is_open()) {
         emit sendErrorMessage(
@@ -682,7 +698,7 @@ int ResultsPelicun::processResults(QString filenameTab) {
     std::getline(fileResults, summaryName);
 
     // now until end of file, read lines and place data into spreadsheet
-    // (do not read more than 10000 lines to avoid visualization issues)
+    // (do not read more than 20000 lines to avoid visualization issues)
     int rowCount = 0;
     while ((std::getline(fileResults, inputLine)) && (rowCount <= 20000)) {
         spreadsheet->insertRow(rowCount);
@@ -729,7 +745,7 @@ int ResultsPelicun::processResults(QString filenameTab) {
 
     QWidget *widget = new QWidget();
     QVBoxLayout *layout = new QVBoxLayout(widget);
-    layout->addWidget(chartView, 1);
+    layout->addWidget(chartView, 3);
     layout->addWidget(spreadsheet, 1);
 
     //
@@ -747,6 +763,9 @@ int ResultsPelicun::processResults(QString filenameTab) {
     fileResults.close();
 
     // close input file
+
+    // clear messages
+    emit sendErrorMessage("");
     return 0;
 }
 
@@ -846,7 +865,7 @@ ResultsPelicun::getColDataExt(QList<QPointF> &dataXY, int numRow, int colX,
 void
 ResultsPelicun::onSpreadsheetCellClicked(int row, int col)
 {
-    qDebug() << "onSPreadSheetCellClicked() :" << row << " " << col;
+    //qDebug() << "onSPreadSheetCellClicked() :" << row << " " << col;
     mLeft = spreadsheet->wasLeftKeyPressed();
 
     // create a new series
@@ -871,18 +890,28 @@ ResultsPelicun::onSpreadsheetCellClicked(int row, int col)
     int rowCount = spreadsheet->rowCount();
     if (col1 != col2) {
         QScatterSeries *series = new QScatterSeries;
-        if (rowCount < 100) {
+
+        // adjust marker size and opacity based on the number of samples
+        if (rowCount < 10) {
             series->setMarkerSize(15.0);
+            series->setColor(QColor(0, 114, 178, 200));
+        } else if (rowCount < 100) {
+            series->setMarkerSize(11.0);
+            series->setColor(QColor(0, 114, 178, 160));
         } else if (rowCount < 1000) {
-            series->setMarkerSize(10.0);
+            series->setMarkerSize(8.0);
+            series->setColor(QColor(0, 114, 178, 100));
         } else if (rowCount < 10000) {
             series->setMarkerSize(6.0);
+            series->setColor(QColor(0, 114, 178, 70));
         } else if (rowCount < 100000) {
-            series->setMarkerSize(4.0);
-        } else
-            series->setMarkerSize(3.0);
-
-        series->setColor(QColor(0, 114, 178, 64));
+            series->setMarkerSize(5.0);
+            series->setColor(QColor(0, 114, 178, 50));
+        } else {
+            series->setMarkerSize(4.5);
+            series->setColor(QColor(0, 114, 178, 30));
+        }
+        
         series->setBorderColor(QColor(255,255,255,0));
 
         QList<QPointF> dataXY;
@@ -900,8 +929,8 @@ ResultsPelicun::onSpreadsheetCellClicked(int row, int col)
         QValueAxis *axisX = new QValueAxis();
         QValueAxis *axisY = new QValueAxis();
 
-        axisX->setTitleText(theHeadings.at(col1));
-        axisY->setTitleText(theHeadings.at(col2));
+        axisX->setTitleText(resultsToShow.value(theHeadings.at(col1)));
+        axisY->setTitleText(resultsToShow.value(theHeadings.at(col2)));
 
         chart->setAxisX(axisX, series);
         chart->setAxisY(axisY, series);
@@ -916,8 +945,8 @@ ResultsPelicun::onSpreadsheetCellClicked(int row, int col)
 
         int binCount = int(pow(rowCount, 1.0/3.0));
         if (binCount > 20) binCount = 20;
-        qDebug() << "row count: " << rowCount;
-        qDebug() << "bin count: " << binCount;
+        //qDebug() << "row count: " << rowCount;
+        //qDebug() << "bin count: " << binCount;
 
         // initialize histogram data
         QList<qreal> histogram;
@@ -980,7 +1009,7 @@ ResultsPelicun::onSpreadsheetCellClicked(int row, int col)
             QStringList xLabels = QStringList(xLabelList);
             QBarCategoryAxis *axisX = new QBarCategoryAxis();
             axisX->append(xLabels);
-            axisX->setTitleText(theHeadings.at(col1));
+            axisX->setTitleText(resultsToShow.value(theHeadings.at(col1)));
             //axisX->setTickCount(NUM_DIVISIONS+1);
             chart->setAxisX(axisX, series);
 
@@ -1011,7 +1040,7 @@ ResultsPelicun::onSpreadsheetCellClicked(int row, int col)
             axisX->setRange(min, max);
             axisY->setRange(0, 1);
             axisY->setTitleText("Cumulative Probability");
-            axisX->setTitleText(theHeadings.at(col1));
+            axisX->setTitleText(resultsToShow.value(theHeadings.at(col1)));
             axisX->setTickCount(11);
             axisY->setTickCount(11);
             chart->setAxisX(axisX, series);
@@ -1057,8 +1086,14 @@ ResultsPelicun::createSummaryHeader() {
     QLabel *nameLabel = new QLabel();
     nameLabel->setText(tr("<b><i>Decision Variable</i></b>"));
     nameLabel->setAlignment(Qt::AlignLeft);
-    nameLabel->setFixedWidth(240);
+    nameLabel->setFixedWidth(160);
     itemLayout->addWidget(nameLabel);
+
+    QLabel *probLabel = new QLabel();
+    probLabel->setText(tr("<b>Probability</b>"));
+    probLabel->setAlignment(Qt::AlignRight);
+    probLabel->setFixedWidth(columnWidth);
+    itemLayout->addWidget(probLabel);
 
     QLabel *meanLabel = new QLabel();
     meanLabel->setText(tr("<b>Mean</b>"));
@@ -1111,6 +1146,10 @@ QWidget *
 ResultsPelicun::createSummaryItem2(QString &name, double mean, double stdDev,
     double min, double p10, double p50, double p90, double max) {
 
+    QStringList probOnly = (QStringList() << "collapsed?" << "red tagged?" <<
+                            "not repairable?" << "excessive repair cost?" <<
+                            "excessive repair time?");
+
     QWidget *item = new QWidget;
     QHBoxLayout *itemLayout = new QHBoxLayout();
     item->setLayout(itemLayout);
@@ -1120,50 +1159,89 @@ ResultsPelicun::createSummaryItem2(QString &name, double mean, double stdDev,
     QLabel *nameLabel = new QLabel();
     nameLabel->setText("<i>"+name.replace("/",": ").replace("_"," ")+"</i>");
     nameLabel->setAlignment(Qt::AlignLeft);
-    nameLabel->setFixedWidth(240);
+    nameLabel->setFixedWidth(160);
     itemLayout->addWidget(nameLabel);
     theNames.append(name);
 
+    QLabel *probLabel = new QLabel();
+    QString probText;
+    if (probOnly.contains(name)) {
+        probLabel->setText(QString::number(mean));
+    } else {
+        probLabel->setText("-");
+    }
+    probLabel->setAlignment(Qt::AlignRight);
+    probLabel->setFixedWidth(columnWidth);
+    itemLayout->addWidget(probLabel);
+
     QLabel *meanLabel = new QLabel();
-    meanLabel->setText(QString::number(mean));
+    if (probOnly.contains(name)) {
+        meanLabel->setText("-");
+    } else {
+        meanLabel->setText(QString::number(mean));
+    }
     meanLabel->setAlignment(Qt::AlignRight);
     meanLabel->setFixedWidth(columnWidth);
     itemLayout->addWidget(meanLabel);
     theMeans.append(mean);
 
     QLabel *stdLabel = new QLabel();
-    stdLabel->setText(QString::number(stdDev));
+    if (probOnly.contains(name)) {
+        stdLabel->setText("-");
+    } else {
+        stdLabel->setText(QString::number(stdDev));
+    }
     stdLabel->setAlignment(Qt::AlignRight);
     stdLabel->setFixedWidth(columnWidth);
     itemLayout->addWidget(stdLabel);
     theStdDevs.append(stdDev);
 
     QLabel *minLabel = new QLabel();
-    minLabel->setText(QString::number(min));
+    if (probOnly.contains(name)) {
+        minLabel->setText("-");
+    } else {
+        minLabel->setText(QString::number(min));
+    }
     minLabel->setAlignment(Qt::AlignRight);
     minLabel->setFixedWidth(columnWidth);
     itemLayout->addWidget(minLabel);
 
     QLabel *p10Label = new QLabel();
-    p10Label->setText(QString::number(p10));
+    if (probOnly.contains(name)) {
+        p10Label->setText("-");
+    } else {
+        p10Label->setText(QString::number(p10));
+    }
     p10Label->setAlignment(Qt::AlignRight);
     p10Label->setFixedWidth(columnWidth);
     itemLayout->addWidget(p10Label);
 
     QLabel *p50Label = new QLabel();
-    p50Label->setText(QString::number(p50));
+    if (probOnly.contains(name)) {
+        p50Label->setText("-");
+    } else {
+        p50Label->setText(QString::number(p50));
+    }
     p50Label->setAlignment(Qt::AlignRight);
     p50Label->setFixedWidth(columnWidth);
     itemLayout->addWidget(p50Label);
 
     QLabel *p90Label = new QLabel();
-    p90Label->setText(QString::number(p90));
+    if (probOnly.contains(name)) {
+        p90Label->setText("-");
+    } else {
+        p90Label->setText(QString::number(p90));
+    }
     p90Label->setAlignment(Qt::AlignRight);
     p90Label->setFixedWidth(columnWidth);
     itemLayout->addWidget(p90Label);
 
     QLabel *maxLabel = new QLabel();
-    maxLabel->setText(QString::number(max));
+    if (probOnly.contains(name)) {
+        maxLabel->setText("-");
+    } else {
+        maxLabel->setText(QString::number(max));
+    }
     maxLabel->setAlignment(Qt::AlignRight);
     maxLabel->setFixedWidth(columnWidth);
     itemLayout->addWidget(maxLabel);

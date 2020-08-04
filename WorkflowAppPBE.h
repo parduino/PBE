@@ -40,21 +40,18 @@ UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 // Written: fmckenna
 
 #include <QWidget>
-
-#include <QItemSelection>
-#include <QTreeView>
-#include <QStandardItemModel>
-#include <QHBoxLayout>
 #include "MainWindow.h"
 #include <WorkflowAppWidget.h>
-#include <LossModel/LossModelContainer.h>
 
+class LossModelSelection;
 class RandomVariablesContainer;
-//class InputWidgetSheetSIM;
+class InputWidgetUQ;
+
+class UQ_EngineSelection;
 class SIM_Selection;
-class InputWidgetSampling;
+
 class EarthquakeLoadingInput;
-class InputWidgetOpenSeesAnalysis;
+class FEM_Selection;
 class UQOptions;
 class ResultsPelicun;
 class GeneralInformationWidget;
@@ -69,6 +66,8 @@ class RemoteJobManager;
 class InputWidgetBIM;
 class InputWidgetUQ;
 class QNetworkAccessManager;
+
+class SimCenterComponentSelection;
 
 class DakotaResults;
 
@@ -91,13 +90,12 @@ public:
     int getMaxNumParallelTasks();
     
 signals:
-    void setUpForApplicationRunDone(QString &tmpDirectory, QString &inputFile);
+    void setUpForApplicationRunDone(QString &tmpDirectory, QString &inputFile,
+                                     QString runType = QString("run"));
     void sendLoadFile(QString filename);
 
 
 public slots:  
-    void selectionChangedSlot(const QItemSelection &, const QItemSelection &);
-
     void setUpForApplicationRun(QString &, QString &);
     void processResults(QString dakotaOut, QString dakotaTab, QString inputFile);
 
@@ -105,37 +103,27 @@ public slots:
 
 private:
 
-    QHBoxLayout *horizontalLayout;
-    QTreeView *treeView;
-    QStandardItemModel *standardModel;
-    QStandardItem *rootNode;
+    // sidebar container selection
+    SimCenterComponentSelection *theComponentSelection;
 
+    // objects that go in sidebar
     GeneralInformationWidget *theGI;
     RandomVariablesContainer *theRVs;
-
     SIM_Selection *theSIM;
-    InputWidgetSampling *theUQ_Method;
+    UQ_EngineSelection *theUQ_Selection;
     EarthquakeEventSelection *theEvent;
-    InputWidgetOpenSeesAnalysis *theAnalysis;
-    LossModelContainer *theLossModel;
+    FEM_Selection *theAnalysis;
+    LossModelSelection *theDLModelSelection;
     ResultsPelicun *theResults;
 
-    // other widgets appearing in UI
-    InputWidgetBIM *theBIM; // contains GI and SIM
-    InputWidgetUQ *theUQ;
-
+    // objects for running the workflow and obtaining results
     RunWidget *theRunWidget;
     Application *localApp;
     Application *remoteApp;
     RemoteJobManager *theJobManager;
 
-    QModelIndex infoItemIdx;
-    SimCenterWidget  *currentWidget;
     QJsonObject *jsonObjOrig;
-
-    QStackedWidget *theStackedWidget;
     QNetworkAccessManager *manager;
-
 };
 
 #endif // WORKFLOW_APP_PBE_H

@@ -42,6 +42,10 @@ UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 #include <SimCenterWidget.h>
 #include <SimCenterAppWidget.h>
 
+#include <HDF5Handler.h>
+
+class ComponentGroup;
+
 class QVBoxLayout;
 class QLineEdit;
 class QLabel;
@@ -58,17 +62,20 @@ public:
 
     ~P58ComponentContainer();
 
-    bool inputFromJSON(QJsonObject &rvObject);
-    bool outputToJSON(QJsonObject &rvObject);
+    bool inputFromJSON(QJsonObject &jsonObject);
+    bool outputToJSON(QJsonObject &jsonObject);
     bool copyFiles(QString &dirName);
 
-    int setFragilityFolder(QString fragilityFolder);
-    QString getFragilityFolder();
+    int setFragilityDataBase(QString fragilityDataBase);
+    QString getFragilityDataBase();
 
     void addCompToOverview(QString compName, QVBoxLayout *compAreaVBox);
 
-    void addComponent(bool doRefresh);
-    void removeComponent(bool doRefresh);
+    void addComponent();
+    void removeComponent();
+
+    void clearCompGroupWidget();
+    void retrieveCompGroups();
 
 public slots:
    void errorMessage(QString message);
@@ -81,8 +88,16 @@ public slots:
    void removeAllComponents(void);
    void showSelectedComponent(void);
 
-   void chooseFragilityFolder(void);
+   void addComponentGroup(QMap<QString, QString> *CG_data_in=nullptr);
+   void removeComponentGroup();
 
+   void onLoadConfigClicked(void);
+   void onSaveConfigClicked(void);
+
+   void chooseFragilityDataBase(void);
+   void exportFragilityDataBase(void);
+
+   /*
    void storeCompQuantity(void);
    void retrieveCompQuantity(void);
 
@@ -98,12 +113,18 @@ public slots:
    void retrieveWeightD2(void);
 
    void refreshCompOverview(void);
+   */
 
 private:
+
+    void deleteCompDB();
+    void deleteCompConfig();
+
     QVBoxLayout *verticalLayout;
     QVBoxLayout *eventLayout;
+    QVBoxLayout *loCGList;
 
-    QLineEdit * fragilityFolderPath;
+    QLineEdit * fragilityDataBasePath;
 
     QComboBox *availableCompCombo;
     QStringListModel *availableCBModel;
@@ -113,6 +134,8 @@ private:
     QLabel *compName;
     QLabel *compDescription;
     QLabel *compEDP;
+    QLabel *compUnit;
+    QLabel *compInfo;
 
     QLineEdit *compQuantity;
     QLabel *compUnitSize;
@@ -127,14 +150,26 @@ private:
     QGroupBox *compOverviewGroupBox;
     QVBoxLayout *compOverviewLayout;
 
+    // component DL information
+    QMap<QString, QMap<QString, QString>* > *compDB;
+
     // component properties
-    QMap<QString, QString> *compQuantityMap;
-    QMap<QString, QString> *compQuantityDistMap;
-    QMap<QString, QString> *compQuantityCOVMap;
-    QMap<QString, QString> *compWeightD1Map;
-    QMap<QString, QString> *compWeightD2Map;
+    QMap<QString, QVector<QMap<QString, QString>* >* > *compConfig;
+
+    QString dbType = "N/A";
+
+    /*
+    QMap<QString, QVector<QString>> *compLocationMap;
+    QMap<QString, QVector<QString>> *compDirectionMap;
+    QMap<QString, QVector<QString>> *compCGMedianMap;
+    QMap<QString, QVector<QString>> *compCGUnitMap;
+    QMap<QString, QVector<QString>> *compCGDistributionMap;
+    QMap<QString, QVector<QString>> *compCGCOVMap;
+    */
 
     QVector<Component *>theComponents;
+    QVector<ComponentGroup *>vComponentGroups;
+
 };
 
 #endif // COMPONENT_CONTAINER_H

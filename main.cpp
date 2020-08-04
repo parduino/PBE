@@ -14,12 +14,14 @@
 #include <QTime>
 #include <QTextStream>
 #include <GoogleAnalytics.h>
+#include <QDir>
+#include <QStandardPaths>
 
  // customMessgaeOutput code from web:
  // https://stackoverflow.com/questions/4954140/how-to-redirect-qdebug-qwarning-qcritical-etc-output
 
-const QString logFilePath = "debug.log";
-bool logToFile = false;
+static QString logFilePath;
+static bool logToFile = false;
 
 void customMessageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
@@ -53,29 +55,44 @@ int main(int argc, char *argv[])
     //Setting Core Application Name, Organization and Version
     QCoreApplication::setApplicationName("PBE");
     QCoreApplication::setOrganizationName("SimCenter");
-    QCoreApplication::setApplicationVersion("1.2.0");
-
+    QCoreApplication::setApplicationVersion("2.1.0");
     GoogleAnalytics::SetTrackingId("UA-126256136-1");
     GoogleAnalytics::StartSession();
     GoogleAnalytics::ReportStart();
+
+    QApplication::setAttribute(Qt::AA_UseOpenGLES);
 
   //
   // set up logging of output messages for user debugging
   //
 
-  // remove old log file
-  QFile debugFile("debug.log");
-  debugFile.remove();
+    logFilePath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+      + QDir::separator() + QCoreApplication::applicationName();
 
-  QByteArray envVar = qgetenv("QTDIR");       //  check if the app is run in Qt Creator
-  
-  if (envVar.isEmpty())
-    logToFile = true;
-  
-  qInstallMessageHandler(customMessageOutput);
+    // make sure tool dir exists in Documentss folder
+    QDir dirWork(logFilePath);
+    if (!dirWork.exists())
+      if (!dirWork.mkpath(logFilePath)) {
+	qDebug() << QString("Could not create Working Dir: ") << logFilePath;
+      }
+
+    // full path to debug.log file
+    logFilePath = logFilePath + QDir::separator() + QString("debug.log");
+
+    // remove old log file
+    QFile debugFile(logFilePath);
+    debugFile.remove();
+
+    QByteArray envVar = qgetenv("QTDIR");       //  check if the app is run in Qt Creator
+
+    if (envVar.isEmpty())
+        logToFile = true;
+
+    qInstallMessageHandler(customMessageOutput);
+
 
   // window scaling for mac
-  //QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+   QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
   QApplication a(argc, argv);
 
@@ -101,6 +118,7 @@ int main(int argc, char *argv[])
 
 // connect(theInputApp,SIGNAL(sendErrorMessage(QString)), *w, SLOT(errorM))
 
+  /*
   QString textAboutPBE = "\
           <p> \
           This is the Performance Based Engineering (PBE) Application.\
@@ -146,23 +164,31 @@ int main(int argc, char *argv[])
              we provide and will be enthused to provide their own applications for others \
              to use. \
           <p>\
-          This is Version 1.2.0 of the tool and as such is limited in scope. Researchers are\
+          This is Version 2.1.0 of the tool and as such is limited in scope. Researchers are\
            encouraged to comment on what additional features and applications they would \
            like to see in the PBE App. If you want a feature, chances are many of your \
            colleagues would also benefit from it.\
           <p>";
 
      w.setAbout(textAboutPBE);
+    */
 
-  QString version("Version 1.2.0");
+
+  QString aboutTitle = "About the SimCenter PBE Application"; // this is the title displayed in the on About dialog
+  QString aboutSource = ":/resources/docs/textAboutPBE.html";  // this is an HTML file stored under resources
+  w.setAbout(aboutTitle, aboutSource);
+
+  QString version("Version 2.1.0");
   w.setVersion(version);
 
-  QString citeText("Frank McKenna, Adam Zsarnoczay, Charles Wang, Wael Elhaddad, & Michael Gardner. (2019, June 30). NHERI-SimCenter/PBE: Release v1.2.0 (Version v1.2.0). Zenodo. http://doi.org/10.5281/zenodo.3263910");
+  QString citeText("Adam Zsarnoczay, Frank McKenna, Charles Wang, Wael Elhaddad, & Michael Gardner. (2019, October 15). NHERI-SimCenter/PBE: Release v2.0.0 (Version v2.0.00). Zenodo. http://doi.org/10.5281/zenodo.3491145");
   w.setCite(citeText);
 
-  QString manualURL("https://www.designsafe-ci.org/data/browser/public/designsafe.storage.community//SimCenter/Software/PBE");
+  QString manualURL("https://nheri-simcenter.github.io/PBE-Documentation/");
   w.setDocumentationURL(manualURL);
 
+  QString messageBoardURL("https://simcenter-messageboard.designsafe-ci.org/smf/index.php?board=7.0");
+  w.setFeedbackURL(messageBoardURL);
 
   //
   // move remote interface to a thread
@@ -182,13 +208,33 @@ int main(int argc, char *argv[])
 
   w.show();
 
-
+  /*
   QFile file(":/styleCommon/common_experimental.qss");
   if(file.open(QFile::ReadOnly)) {
     QString styleSheet = QLatin1String(file.readAll());
     a.setStyleSheet(styleSheet);
     file.close();
   }
+*/
+#ifdef Q_OS_WIN
+    QFile file(":/styleCommon/stylesheetWIN.qss");
+#endif
+
+#ifdef Q_OS_MACOS
+    QFile file(":/styleCommon/stylesheetMAC.qss");
+#endif
+
+#ifdef Q_OS_LINUX
+    QFile file(":/styleCommon/stylesheetMAC.qss");
+#endif
+
+
+    if(file.open(QFile::ReadOnly)) {
+        a.setStyleSheet(file.readAll());
+        file.close();
+    } else {
+        qDebug() << "could not open stylesheet";
+    }
 
 
 
